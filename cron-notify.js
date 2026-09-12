@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+
 const PROJECT_ID = 'voting-a5e9b';
 const DB_URL = `https://${PROJECT_ID}-default-rtdb.firebaseio.com`;
 const APP_URL = 'https://voting.tungcreativevn.workers.dev';
@@ -16,6 +17,7 @@ async function getAccessToken(clientEmail, privateKey) {
 
     const encode = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
     const unsignedJwt = `${encode(header)}.${encode(claimSet)}`;
+
     const sign = crypto.createSign('RSA-SHA256');
     sign.update(unsignedJwt);
     sign.end();
@@ -27,6 +29,7 @@ async function getAccessToken(clientEmail, privateKey) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signedJwt}`
     });
+
     const tokenData = await tokenRes.json();
     return tokenData.access_token;
 }
@@ -39,6 +42,7 @@ async function run() {
         console.error('Thiếu cấu hình biến môi trường FIREBASE_CLIENT_EMAIL hoặc FIREBASE_PRIVATE_KEY');
         process.exit(1);
     }
+
     const now = Date.now();
     const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
@@ -56,11 +60,11 @@ async function run() {
         if (!conf || !conf.kickoff) continue;
 
         const diff = conf.kickoff - now;
-        // Trận đấu sắp diễn ra trong vòng 15 phút tới và chưa từng gửi thông báo
         if (diff > 0 && diff <= FIFTEEN_MINUTES && !conf.notified_upcoming) {
             upcomingMatches.push({ id, conf });
         }
     }
+
     if (upcomingMatches.length === 0) {
         console.log('Không có trận nào sắp diễn ra trong 15 phút tới cần gửi thông báo.');
         return;
@@ -73,6 +77,7 @@ async function run() {
         console.log('Không tìm thấy token người dùng nào.');
         return;
     }
+
     const tokens = Object.values(tokensData).map(item => item.token).filter(Boolean);
     if (tokens.length === 0) {
         console.log('Danh sách token rỗng.');
@@ -103,22 +108,26 @@ async function run() {
                             title: 'SẮP ĐẾN GIỜ BÌNH CHỌN!',
                             body: `Trận đấu ${t1} - ${t2} sẽ mở cổng trong ít phút nữa. Vào dự đoán ngay!`
                         },
-                        // Cấu hình Web Push chuẩn để hiển thị đầy đủ icon/badge và ép popup hiển thị
                         webpush: {
                             headers: {
                                 Urgency: 'high'
                             },
                             notification: {
-                                icon: `${APP_URL}/logo.png`,
-                                badge: `${APP_URL}/logo_tc2.png`,
-                                requireInteraction: true, // Ép popup giữ nguyên trên màn hình chờ người dùng click
+                                icon: `${APP_URL}/logo_tc2.png`,
+                                badge: `${APP_URL}/logo.png`,
+                                tag: 'upcoming-match',
+                                renotify: true,
+                                requireInteraction: true,
                                 vibrate: [200, 100, 200]
                             },
                             fcm_options: {
                                 link: `${APP_URL}/home`
                             }
                         },
-                        data: { matchId: match.id }
+                        data: { 
+                            matchId: match.id,
+                            url: `${APP_URL}/home`
+                        }
                     }
                 })
             });
@@ -126,7 +135,7 @@ async function run() {
 
         await Promise.all(sendRequests);
 
-        // Đánh dấu cờ đã gửi lên Firebase để tránh bắn lại nhiều lần
+        // Đánh dấu cờ đã gửi lên Firebase
         await fetch(`${DB_URL}/matches/${match.id}/config/notified_upcoming.json`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
