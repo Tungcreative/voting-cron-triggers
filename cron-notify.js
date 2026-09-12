@@ -113,8 +113,8 @@ async function run() {
                                 Urgency: 'high'
                             },
                             notification: {
-                                icon: `${APP_URL}/logo_tc2.png`,
-                                badge: `${APP_URL}/logo.png`,
+                                icon: `${APP_URL}/logo.png`,
+                                badge: `${APP_URL}/logo_tc2.png`,
                                 tag: 'upcoming-match',
                                 renotify: true,
                                 requireInteraction: true,
