@@ -54,7 +54,6 @@ async function run() {
         return;
     }
 
-    // Gom danh sách các thông báo cần gửi (gồm cả sắp mở và sắp đóng)
     const notificationsToSend = [];
 
     for (const id in matches) {
@@ -64,7 +63,7 @@ async function run() {
         const t1 = conf.t1 || 'Đội 1';
         const t2 = conf.t2 || 'Đội 2';
 
-        // Điều kiện 1: Sắp đến giờ MỞ bình chọn (trước 15 phút)
+        // Sắp mở bình chọn
         if (conf.kickoff) {
             const diffKickoff = conf.kickoff - now;
             if (diffKickoff > 0 && diffKickoff <= FIFTEEN_MINUTES && !conf.notified_upcoming) {
@@ -73,12 +72,12 @@ async function run() {
                     flagKey: 'notified_upcoming',
                     tag: `upcoming-${id}`,
                     title: 'SẮP ĐẾN GIỜ BÌNH CHỌN!',
-                    body: `Trận đấu ${t1} - ${t2} sẽ mở cổng trong ít phút nữa. Chuẩn bị tham gia nhé!`
+                    body: `Trận đấu ${t1} - ${t2} sẽ mở cổng trong ít phút nữa. Hãy dự đoán ngay!`
                 });
             }
         }
 
-        // Điều kiện 2: Sắp đến giờ ĐÓNG bình chọn (trước 15 phút)
+        // Sắp đóng bình chọn
         if (conf.deadline) {
             const diffDeadline = conf.deadline - now;
             if (diffDeadline > 0 && diffDeadline <= FIFTEEN_MINUTES && !conf.notified_closing) {
@@ -87,14 +86,14 @@ async function run() {
                     flagKey: 'notified_closing',
                     tag: `closing-${id}`,
                     title: 'SẮP ĐÓNG CỔNG BÌNH CHỌN!',
-                    body: `Cổng bình chọn trận ${t1} - ${t2} sẽ đóng cổng trong ít phút nữa. Hãy tham gia ngay!`
+                    body: `Cổng bình chọn trận ${t1} - ${t2} sẽ đóng cổng trong ít phút nữ. Hãy dự đoán ngay!`
                 });
             }
         }
     }
 
     if (notificationsToSend.length === 0) {
-        console.log('Không có thông báo nào (sắp mở hoặc sắp đóng) cần gửi lúc này.');
+        console.log('Không có thông báo nào cần gửi.');
         return;
     }
 
@@ -102,21 +101,21 @@ async function run() {
     const tokensRes = await fetch(`${DB_URL}/fcm_tokens.json`);
     const tokensData = await tokensRes.json();
     if (!tokensData) {
-        console.log('Không tìm thấy token người dùng nào.');
+        console.log('Không tìm thấy token người dùng.');
         return;
     }
+
     const tokens = Object.values(tokensData).map(item => item.token).filter(Boolean);
     if (tokens.length === 0) {
         console.log('Danh sách token rỗng.');
         return;
     }
 
-    // 3. Lấy access token từ Google
     const accessToken = await getAccessToken(clientEmail, privateKey);
 
-    // 4. Phát từng thông báo và cập nhật cờ lên Firebase
+    // 3. Gửi thông báo với các cờ ưu tiên màn hình khóa
     for (const item of notificationsToSend) {
-        console.log(`Đang gửi: "${item.title}" cho trận ID: ${item.matchId}...`);
+        console.log(`Đang gửi: "${item.title}" cho trận: ${item.matchId}...`);
 
         const sendRequests = tokens.map(token => {
             return fetch(`https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`, {
@@ -132,9 +131,10 @@ async function run() {
                             title: item.title,
                             body: item.body
                         },
+                        // Cấu hình WebPush (Chrome / Edge / Windows / Android Web)
                         webpush: {
                             headers: {
-                                Urgency: 'high'
+                                Urgency: 'high' // Bắt buộc để đánh thức thiết bị và hiện màn hình khóa
                             },
                             notification: {
                                 icon: `${APP_URL}/logo.png`,
@@ -142,10 +142,20 @@ async function run() {
                                 tag: item.tag,
                                 renotify: true,
                                 requireInteraction: true,
-                                vibrate: [200, 100, 200]
+                                vibrate: [300, 100, 300, 100, 300] // Rung dài để gây chú ý
                             },
                             fcm_options: {
-                                link: `${APP_URL}/home.html`
+                                link: `${APP_URL}/home`
+                            }
+                        },
+                        // Cấu hình Android Native/PWA Container (Ép bật màn hình khóa)
+                        android: {
+                            priority: 'HIGH',
+                            notification: {
+                                visibility: 'PUBLIC', // Hiển thị đầy đủ nội dung trên màn hình khóa
+                                notification_priority: 'PRIORITY_MAX',
+                                default_vibrate_timings: true,
+                                default_sound: true
                             }
                         },
                         data: {
@@ -158,17 +168,17 @@ async function run() {
         });
         await Promise.all(sendRequests);
 
-        // Đánh dấu cờ tương ứng lên Firebase để không gửi lặp lại
+        // Đánh dấu cờ hoàn thành
         await fetch(`${DB_URL}/matches/${item.matchId}/config/${item.flagKey}.json`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(true)
         });
-        console.log(`Đã gửi thành công và cập nhật cờ ${item.flagKey} cho trận ${item.matchId}.`);
+        console.log(`Đã gửi thành công trận ${item.matchId}`);
     }
 }
 
 run().catch(err => {
-    console.error('Lỗi khi chạy cron:', err);
+    console.error('Lỗi cron:', err);
     process.exit(1);
 });
