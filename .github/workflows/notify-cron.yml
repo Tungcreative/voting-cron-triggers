@@ -1,0 +1,24 @@
+name: Match Notification Cron
+on:
+  schedule:
+    # Tự động chạy mỗi 5 phút một lần
+    - cron: '*/5 * * * *'
+  # Cho phép bấm chạy thử thủ công bất kỳ lúc nào
+  workflow_dispatch:
+
+jobs:
+  check-and-send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run notification script
+        env:
+          FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
+        run: node cron-notify.js
