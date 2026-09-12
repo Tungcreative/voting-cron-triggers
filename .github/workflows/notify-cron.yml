@@ -18,16 +18,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Run notification script (Round 1)
-        env:
-          FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
-          FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
-        run: node cron-notify.js
-
-      - name: Wait 2.5 minutes
-        run: sleep 150
-
-      - name: Run notification script (Round 2)
+      - name: Run notification script
         env:
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
