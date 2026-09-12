@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const PROJECT_ID = 'voting-a5e9b';
 const DB_URL = `https://${PROJECT_ID}-default-rtdb.firebaseio.com`;
+const APP_URL = 'https://voting.tungcreativevn.workers.dev';
 
 async function getAccessToken(clientEmail, privateKey) {
     const now = Math.floor(Date.now() / 1000);
@@ -15,7 +16,6 @@ async function getAccessToken(clientEmail, privateKey) {
 
     const encode = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
     const unsignedJwt = `${encode(header)}.${encode(claimSet)}`;
-
     const sign = crypto.createSign('RSA-SHA256');
     sign.update(unsignedJwt);
     sign.end();
@@ -40,7 +40,7 @@ async function run() {
         process.exit(1);
     }
     const now = Date.now();
-    const FIFTEEN_MINUTES = 10 * 60 * 1000;
+    const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
     // 1. Quét danh sách trận đấu trên Firebase
     const matchesRes = await fetch(`${DB_URL}/matches.json`);
@@ -61,7 +61,6 @@ async function run() {
             upcomingMatches.push({ id, conf });
         }
     }
-
     if (upcomingMatches.length === 0) {
         console.log('Không có trận nào sắp diễn ra trong 15 phút tới cần gửi thông báo.');
         return;
@@ -74,7 +73,6 @@ async function run() {
         console.log('Không tìm thấy token người dùng nào.');
         return;
     }
-
     const tokens = Object.values(tokensData).map(item => item.token).filter(Boolean);
     if (tokens.length === 0) {
         console.log('Danh sách token rỗng.');
@@ -103,7 +101,22 @@ async function run() {
                         token: token,
                         notification: {
                             title: 'SẮP ĐẾN GIỜ BÌNH CHỌN!',
-                            body: `Trận đấu ${t1} - ${t2} sẽ mở cổng trong 5-10 phút nữa. Vào dự đoán ngay!`
+                            body: `Trận đấu ${t1} - ${t2} sẽ mở cổng trong ít phút nữa. Vào dự đoán ngay!`
+                        },
+                        // Cấu hình Web Push chuẩn để hiển thị đầy đủ icon/badge và ép popup hiển thị
+                        webpush: {
+                            headers: {
+                                Urgency: 'high'
+                            },
+                            notification: {
+                                icon: `${APP_URL}/logo.png`,
+                                badge: `${APP_URL}/logo_tc2.png`,
+                                requireInteraction: true, // Ép popup giữ nguyên trên màn hình chờ người dùng click
+                                vibrate: [200, 100, 200]
+                            },
+                            fcm_options: {
+                                link: `${APP_URL}/home`
+                            }
                         },
                         data: { matchId: match.id }
                     }
