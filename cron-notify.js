@@ -86,7 +86,7 @@ async function run() {
                     flagKey: 'notified_closing',
                     tag: `closing-${id}`,
                     title: 'SẮP ĐÓNG CỔNG BÌNH CHỌN!',
-                    body: `Cổng bình chọn trận ${t1} - ${t2} sẽ đóng cổng trong ít phút nữ. Hãy dự đoán ngay!`
+                    body: `Cổng bình chọn trận ${t1} - ${t2} sẽ đóng cổng trong ít phút nữa. Hãy dự đoán ngay!`
                 });
             }
         }
