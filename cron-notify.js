@@ -44,7 +44,7 @@ async function run() {
     }
 
     const now = Date.now();
-    const FIFTEEN_MINUTES = 15 * 60 * 1000;
+    const FIFTEEN_MINUTES = 20 * 60 * 1000;
 
     // 1. Quét danh sách trận đấu trên Firebase
     const matchesRes = await fetch(`${DB_URL}/matches.json`);
