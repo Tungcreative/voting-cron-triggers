@@ -72,7 +72,7 @@ async function run() {
                     flagKey: 'notified_upcoming',
                     tag: `upcoming-${id}`,
                     title: 'SẮP ĐẾN GIỜ BÌNH CHỌN!',
-                    body: `Trận đấu ${t1} - ${t2} sẽ mở cổng trong ít phút nữa. Hãy dự đoán ngay!`
+                    body: `Trận ${t1}-${t2} sẽ mở trong ít phút nữa. Hãy dự đoán ngay!`
                 });
             }
         }
@@ -86,7 +86,7 @@ async function run() {
                     flagKey: 'notified_closing',
                     tag: `closing-${id}`,
                     title: 'SẮP ĐÓNG CỔNG BÌNH CHỌN!',
-                    body: `Cổng bình chọn trận ${t1} - ${t2} sẽ đóng cổng trong ít phút nữa. Hãy dự đoán ngay!`
+                    body: `Trận ${t1}-${t2} sẽ đóng trong ít phút nữa. Hãy dự đoán ngay!`
                 });
             }
         }
