@@ -34,6 +34,13 @@ async function getAccessToken(clientEmail, privateKey) {
     return tokenData.access_token;
 }
 
+function formatTime(timestamp) {
+    const d = new Date(timestamp);
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+}
+
 async function run() {
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
     const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
@@ -44,56 +51,100 @@ async function run() {
     }
 
     const now = Date.now();
-    const FIFTEEN_MINUTES = 20 * 60 * 1000;
+    const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
-    // 1. Quét danh sách trận đấu trên Firebase
-    const matchesRes = await fetch(`${DB_URL}/matches.json`);
+    // Xác định đầu ngày và cuối ngày theo giờ Việt Nam (GMT+7)
+    const todayStr = new Date(now + 7 * 3600 * 1000).toISOString().split('T')[0];
+    const startOfDay = new Date(`${todayStr}T00:00:00+07:00`).getTime();
+    const endOfDay = new Date(`${todayStr}T23:59:59+07:00`).getTime();
+
+    // 1. Quét dữ liệu từ Firebase
+    const [matchesRes, sysRes, tokensRes, manualRes] = await Promise.all([
+        fetch(`${DB_URL}/matches.json`),
+        fetch(`${DB_URL}/system.json`),
+        fetch(`${DB_URL}/fcm_tokens.json`),
+        fetch(`${DB_URL}/manual_notifications.json`)
+    ]);
+
     const matches = await matchesRes.json();
-    if (!matches) {
-        console.log('Không có dữ liệu trận đấu.');
+    const system = (await sysRes.json()) || {};
+    const tokensData = await tokensRes.json();
+    const manualData = await manualRes.json();
+
+    if (!tokensData) {
+        console.log('Không tìm thấy token người dùng nào.');
+        return;
+    }
+
+    const tokens = Object.values(tokensData).map(item => item.token).filter(Boolean);
+    if (tokens.length === 0) {
+        console.log('Danh sách token rỗng.');
         return;
     }
 
     const notificationsToSend = [];
 
-    for (const id in matches) {
-        const conf = matches[id]?.config;
-        if (!conf) continue;
+    // A. Quét các trận đấu tự động
+    const todayMatches = [];
+    if (matches) {
+        for (const id in matches) {
+            const conf = matches[id]?.config;
+            if (!conf) continue;
 
-        const t1 = conf.t1 || 'Đội 1';
-        const t2 = conf.t2 || 'Đội 2';
+            const t1 = conf.t1 || 'Đội 1';
+            const t2 = conf.t2 || 'Đội 2';
 
-        // Sắp mở bình chọn
-        if (conf.kickoff) {
-            const diffKickoff = conf.kickoff - now;
-            if (diffKickoff > 0 && diffKickoff <= FIFTEEN_MINUTES && !conf.notified_upcoming) {
-                notificationsToSend.push({
-                    matchId: id,
-                    flagKey: 'notified_upcoming',
-                    tag: `upcoming-${id}`,
-                    title: 'SẮP ĐẾN GIỜ BÌNH CHỌN!',
-                    body: `Trận ${t1}-${t2} sẽ mở trong ít phút nữa. Hãy dự đoán ngay!`
-                });
+            if (conf.kickoff && conf.kickoff >= startOfDay && conf.kickoff <= endOfDay) {
+                todayMatches.push({ id, t1, t2, kickoff: conf.kickoff, deadline: conf.deadline });
             }
-        }
 
-        // Sắp đóng bình chọn
-        if (conf.deadline) {
-            const diffDeadline = conf.deadline - now;
-            if (diffDeadline > 0 && diffDeadline <= FIFTEEN_MINUTES && !conf.notified_closing) {
-                notificationsToSend.push({
-                    matchId: id,
-                    flagKey: 'notified_closing',
-                    tag: `closing-${id}`,
-                    title: 'SẮP ĐÓNG CỔNG BÌNH CHỌN!',
-                    body: `Trận ${t1}-${t2} sẽ đóng trong ít phút nữa. Hãy dự đoán ngay!`
-                });
+            // Sắp mở cổng (trước 15p)
+            if (conf.kickoff) {
+                const diffKickoff = conf.kickoff - now;
+                if (diffKickoff > 0 && diffKickoff <= FIFTEEN_MINUTES && !conf.notified_upcoming) {
+                    notificationsToSend.push({
+                        type: 'MATCH_UPCOMING',
+                        matchId: id,
+                        flagKey: 'notified_upcoming',
+                        tag: `upcoming-${id}`,
+                        title: 'SẮP ĐẾN GIỜ BÌNH CHỌN!',
+                        body: `Trận ${t1}-${t2} sẽ mở trong ít phút nữa. Hãy dự đoán ngay!`
+                    });
+                }
+            }
+
+            // Sắp đóng cổng (trước 15p)
+            if (conf.deadline) {
+                const diffDeadline = conf.deadline - now;
+                if (diffDeadline > 0 && diffDeadline <= FIFTEEN_MINUTES && !conf.notified_closing) {
+                    notificationsToSend.push({
+                        type: 'MATCH_CLOSING',
+                        matchId: id,
+                        flagKey: 'notified_closing',
+                        tag: `closing-${id}`,
+                        title: 'SẮP HẾT GIỜ BÌNH CHỌN!',
+                        body: `Trận ${t1}-${t2} sẽ đóng trong ít phút nữa. Hãy dự đoán ngay!`
+                    });
+                }
             }
         }
     }
 
-    const manualRes = await fetch(`${DB_URL}/manual_notifications.json`);
-    const manualData = await manualRes.json();
+    // B. Thẻ ghim lịch thi đấu trong ngày
+    if (todayMatches.length > 0 && system.daily_summary_date !== todayStr) {
+        todayMatches.sort((a, b) => a.kickoff - b.kickoff);
+        const matchLines = todayMatches.map(m => `• ${formatTime(m.kickoff)}: ${m.t1} vs ${m.t2}`).join('\n');
+
+        notificationsToSend.push({
+            type: 'DAILY_SUMMARY',
+            tag: 'daily-schedule',
+            title: `LỊCH BÌNH CHỌN HÔM NAY (${todayMatches.length} TRẬN)`,
+            body: matchLines,
+            dateKey: todayStr
+        });
+    }
+
+    // C. Quét thông báo thủ công từ Admin
     if (manualData) {
         for (const key in manualData) {
             const item = manualData[key];
@@ -108,39 +159,18 @@ async function run() {
             }
         }
     }
-    if (item.type === 'MANUAL_ANNOUNCEMENT') {
-        await fetch(`${DB_URL}/manual_notifications/${item.manualKey}/status.json`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify('sent')
-        });
-        console.log(`Đã hoàn tất gửi thông báo thủ công: ${item.manualKey}`);
-    }
 
     if (notificationsToSend.length === 0) {
-        console.log('Không có thông báo nào cần gửi.');
+        console.log('Không có thông báo nào cần gửi lúc này.');
         return;
     }
 
-    // 2. Lấy danh sách FCM Tokens
-    const tokensRes = await fetch(`${DB_URL}/fcm_tokens.json`);
-    const tokensData = await tokensRes.json();
-    if (!tokensData) {
-        console.log('Không tìm thấy token người dùng.');
-        return;
-    }
-
-    const tokens = Object.values(tokensData).map(item => item.token).filter(Boolean);
-    if (tokens.length === 0) {
-        console.log('Danh sách token rỗng.');
-        return;
-    }
-
+    // 2. Lấy Google Access Token
     const accessToken = await getAccessToken(clientEmail, privateKey);
 
-    // 3. Gửi thông báo với các cờ ưu tiên màn hình khóa
+    // 3. Gửi thông báo và cập nhật cờ tương ứng
     for (const item of notificationsToSend) {
-        console.log(`Đang gửi: "${item.title}" cho trận: ${item.matchId}...`);
+        console.log(`Đang gửi: "${item.title}"...`);
 
         const sendRequests = tokens.map(token => {
             return fetch(`https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`, {
@@ -156,54 +186,66 @@ async function run() {
                             title: item.title,
                             body: item.body
                         },
-                        // Cấu hình WebPush (Chrome / Edge / Windows / Android Web)
                         webpush: {
                             headers: {
-                                Urgency: 'high' // Bắt buộc để đánh thức thiết bị và hiện màn hình khóa
+                                Urgency: 'high'
                             },
                             notification: {
                                 icon: `${APP_URL}/logo.png`,
                                 badge: `${APP_URL}/logo_tc2.png`,
                                 tag: item.tag,
                                 renotify: true,
-                                requireInteraction: true,
-                                vibrate: [300, 100, 300, 100, 300] // Rung dài để gây chú ý
+                                requireInteraction: true
                             },
                             fcm_options: {
                                 link: `${APP_URL}/home`
                             }
                         },
-                        // Cấu hình Android Native/PWA Container (Ép bật màn hình khóa)
                         android: {
                             priority: 'HIGH',
                             notification: {
-                                visibility: 'PUBLIC', // Hiển thị đầy đủ nội dung trên màn hình khóa
-                                notification_priority: 'PRIORITY_MAX',
-                                default_vibrate_timings: true,
-                                default_sound: true
+                                visibility: 'PUBLIC',
+                                notification_priority: 'PRIORITY_MAX'
                             }
                         },
                         data: {
-                            matchId: item.matchId,
-                            url: `${APP_URL}/home.html`
+                            url: `${APP_URL}/home`,
+                            type: item.type
                         }
                     }
                 })
             });
         });
+
         await Promise.all(sendRequests);
 
-        // Đánh dấu cờ hoàn thành
-        await fetch(`${DB_URL}/matches/${item.matchId}/config/${item.flagKey}.json`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(true)
-        });
-        console.log(`Đã gửi thành công trận ${item.matchId}`);
+        // Cập nhật trạng thái sau khi đã gửi xong
+        if (item.type === 'DAILY_SUMMARY') {
+            await fetch(`${DB_URL}/system/daily_summary_date.json`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(item.dateKey)
+            });
+            console.log(`Đã cập nhật ngày gửi tóm tắt: ${item.dateKey}`);
+        } else if (item.type === 'MANUAL_ANNOUNCEMENT') {
+            await fetch(`${DB_URL}/manual_notifications/${item.manualKey}/status.json`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify('sent')
+            });
+            console.log(`Đã hoàn tất gửi thông báo thủ công: ${item.manualKey}`);
+        } else {
+            await fetch(`${DB_URL}/matches/${item.matchId}/config/${item.flagKey}.json`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(true)
+            });
+            console.log(`Đã cập nhật cờ ${item.flagKey} cho trận ${item.matchId}`);
+        }
     }
 }
 
 run().catch(err => {
-    console.error('Lỗi cron:', err);
+    console.error('Lỗi khi chạy cron:', err);
     process.exit(1);
 });
