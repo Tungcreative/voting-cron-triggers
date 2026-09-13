@@ -92,6 +92,31 @@ async function run() {
         }
     }
 
+    const manualRes = await fetch(`${DB_URL}/manual_notifications.json`);
+    const manualData = await manualRes.json();
+    if (manualData) {
+        for (const key in manualData) {
+            const item = manualData[key];
+            if (item && item.status === 'pending') {
+                notificationsToSend.push({
+                    type: 'MANUAL_ANNOUNCEMENT',
+                    manualKey: key,
+                    tag: `manual-${key}`,
+                    title: item.title,
+                    body: item.body
+                });
+            }
+        }
+    }
+    if (item.type === 'MANUAL_ANNOUNCEMENT') {
+        await fetch(`${DB_URL}/manual_notifications/${item.manualKey}/status.json`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify('sent')
+        });
+        console.log(`Đã hoàn tất gửi thông báo thủ công: ${item.manualKey}`);
+    }
+
     if (notificationsToSend.length === 0) {
         console.log('Không có thông báo nào cần gửi.');
         return;
