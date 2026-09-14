@@ -210,7 +210,10 @@ async function run() {
                         },
                         data: {
                             url: `${APP_URL}/home`,
-                            type: item.type
+                            type: item.type,
+                            manualKey: item.manualKey || '',
+                            title: item.title,
+                            body: item.body
                         }
                     }
                 })
@@ -229,7 +232,7 @@ async function run() {
             console.log(`Đã cập nhật ngày gửi tóm tắt: ${item.dateKey}`);
         } else if (item.type === 'MANUAL_ANNOUNCEMENT') {
             await fetch(`${DB_URL}/manual_notifications/${item.manualKey}/status.json`, {
-                method: 'PUT',
+                method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify('sent')
             });
