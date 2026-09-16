@@ -191,8 +191,8 @@ async function run() {
                         webpush: {
                             headers: { Urgency: 'high' },
                             notification: {
-                                icon: `${APP_URL}/logo.png`,
-                                badge: `${APP_URL}/logo-tc2.png`,
+                                icon: `${APP_URL}/logo_tc.png`,
+                                badge: `${APP_URL}/logo.png`,
                                 image: item.image || undefined,
                                 tag: item.tag,
                                 renotify: true,
@@ -208,12 +208,8 @@ async function run() {
                             }
                         },
                         data: {
-                            url: `${APP_URL}/home.html`,
-                            type: item.type,
-                            manualKey: item.manualKey || '',
-                            title: item.title,
-                            image: item.image || '',
-                            body: item.body
+                            url: `${APP_URL}/home`,
+                            type: item.type
                         }
                     }
                 })
@@ -231,12 +227,11 @@ async function run() {
             });
             console.log(`Đã cập nhật ngày gửi tóm tắt: ${item.dateKey}`);
         } else if (item.type === 'MANUAL_ANNOUNCEMENT') {
-            await fetch(`${DB_URL}/manual_notifications/${item.manualKey}/status.json`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify('sent')
+            // Xóa sạch bản ghi trong hàng đợi gửi push trên Firebase
+            await fetch(`${DB_URL}/manual_notifications/${item.manualKey}.json`, {
+                method: 'DELETE'
             });
-            console.log(`Đã hoàn tất gửi thông báo thủ công: ${item.manualKey}`);
+            console.log(`Đã gửi Push và xóa sạch hàng đợi: ${item.manualKey}`);
         } else {
             await fetch(`${DB_URL}/matches/${item.matchId}/config/${item.flagKey}.json`, {
                 method: 'PUT',
