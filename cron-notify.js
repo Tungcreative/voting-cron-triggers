@@ -154,6 +154,7 @@ async function run() {
                     manualKey: key,
                     tag: `manual-${key}`,
                     title: item.title,
+                    image: item.image || '',
                     body: item.body
                 });
             }
@@ -184,22 +185,20 @@ async function run() {
                         token: token,
                         notification: {
                             title: item.title,
-                            body: item.body
+                            body: item.body,
+                            image: item.image || undefined
                         },
                         webpush: {
-                            headers: {
-                                Urgency: 'high'
-                            },
+                            headers: { Urgency: 'high' },
                             notification: {
                                 icon: `${APP_URL}/logo.png`,
-                                badge: `${APP_URL}/logo_tc2.png`,
+                                badge: `${APP_URL}/logo-tc2.png`,
+                                image: item.image || undefined,
                                 tag: item.tag,
                                 renotify: true,
                                 requireInteraction: true
                             },
-                            fcm_options: {
-                                link: `${APP_URL}/home`
-                            }
+                            fcm_options: { link: `${APP_URL}/home.html` }
                         },
                         android: {
                             priority: 'HIGH',
@@ -209,10 +208,11 @@ async function run() {
                             }
                         },
                         data: {
-                            url: `${APP_URL}/home`,
+                            url: `${APP_URL}/home.html`,
                             type: item.type,
                             manualKey: item.manualKey || '',
                             title: item.title,
+                            image: item.image || '',
                             body: item.body
                         }
                     }
