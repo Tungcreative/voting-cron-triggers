@@ -196,16 +196,37 @@ async function run() {
         }
 
         const sendRequests = tokens.map(async (token) => {
+            // Gom nội dung hiển thị vào webpush.notification
+            const webpushNotif = {
+                title: item.title,
+                body: item.body,
+                icon: `${APP_URL}/logo.png`,
+                badge: `${APP_URL}/logo_tc2.png`,
+                tag: item.tag || 'general-tag',
+                renotify: true,
+                requireInteraction: true
+            };
+            if (item.image && typeof item.image === 'string' && item.image.startsWith('http')) {
+                webpushNotif.image = item.image;
+            }
+
             const messageBody = {
                 message: {
                     token: token,
-                    notification: notifPayload,
+                    // Bỏ khối notification cấp gốc, chỉ dùng webpush và data
                     webpush: {
-                        headers: { Urgency: 'high' },
+                        headers: { 
+                            Urgency: 'high'
+                        },
                         notification: webpushNotif,
-                        fcm_options: { link: `${APP_URL}/home.html` }
+                        fcm_options: { 
+                            link: `${APP_URL}/home.html` 
+                        }
                     },
                     data: {
+                        title: item.title,
+                        body: item.body,
+                        image: item.image || '',
                         url: `${APP_URL}/home.html`,
                         type: String(item.type || 'GENERAL')
                     }
