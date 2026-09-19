@@ -53,7 +53,7 @@ async function run() {
     const now = Date.now();
     const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
-    // Xác định đầu ngày và cuối ngày theo giờ Việt Nam (GMT+7)
+    // Giờ Việt Nam (GMT+7)
     const todayStr = new Date(now + 7 * 3600 * 1000).toISOString().split('T')[0];
     const startOfDay = new Date(`${todayStr}T00:00:00+07:00`).getTime();
     const endOfDay = new Date(`${todayStr}T23:59:59+07:00`).getTime();
@@ -72,7 +72,7 @@ async function run() {
     const manualData = await manualRes.json();
 
     if (!tokensData) {
-        console.log('Không tìm thấy token người dùng nào.');
+        console.log('Không tìm thấy token người dùng nào trong database.');
         return;
     }
 
@@ -81,6 +81,7 @@ async function run() {
         console.log('Danh sách token rỗng.');
         return;
     }
+    console.log(`Tìm thấy ${tokens.length} thiết bị đã đăng ký nhận thông báo.`);
 
     const notificationsToSend = [];
 
@@ -122,7 +123,7 @@ async function run() {
                         matchId: id,
                         flagKey: 'notified_closing',
                         tag: `closing-${id}`,
-                        title: 'SẮP HẾT GIỜ BÌNH CHỌN!',
+                        title: 'SẮP ĐÓNG CỔNG BÌNH CHỌN!',
                         body: `Trận ${t1}-${t2} sẽ đóng trong ít phút nữa. Hãy dự đoán ngay!`
                     });
                 }
@@ -130,7 +131,7 @@ async function run() {
         }
     }
 
-    // B. Thẻ ghim lịch thi đấu trong ngày
+    // B. Lịch thi đấu trong ngày
     if (todayMatches.length > 0 && system.daily_summary_date !== todayStr) {
         todayMatches.sort((a, b) => a.kickoff - b.kickoff);
         const matchLines = todayMatches.map(m => `• ${formatTime(m.kickoff)}: ${m.t1} vs ${m.t2}`).join('\n');
@@ -154,7 +155,7 @@ async function run() {
                     manualKey: key,
                     tag: `manual-${key}`,
                     title: item.title,
-                    image: item.image || '',
+                    image: item.image || '', // Chỉ nhận nếu là URL ảnh
                     body: item.body
                 });
             }
@@ -169,56 +170,73 @@ async function run() {
     // 2. Lấy Google Access Token
     const accessToken = await getAccessToken(clientEmail, privateKey);
 
-    // 3. Gửi thông báo và cập nhật cờ tương ứng
+    // 3. Gửi thông báo và xử lý cờ trạng thái
     for (const item of notificationsToSend) {
+        console.log(`\n========================================`);
         console.log(`Đang gửi: "${item.title}"...`);
 
-        const sendRequests = tokens.map(token => {
-            return fetch(`https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    message: {
-                        token: token,
-                        notification: {
-                            title: item.title,
-                            body: item.body,
-                            image: item.image || undefined
-                        },
-                        webpush: {
-                            headers: { Urgency: 'high' },
-                            notification: {
-                                icon: `${APP_URL}/logo_tc.png`,
-                                badge: `${APP_URL}/logo.png`,
-                                image: item.image || undefined,
-                                tag: item.tag,
-                                renotify: true,
-                                requireInteraction: true
-                            },
-                            fcm_options: { link: `${APP_URL}/home.html` }
-                        },
-                        android: {
-                            priority: 'HIGH',
-                            notification: {
-                                visibility: 'PUBLIC',
-                                notification_priority: 'PRIORITY_MAX'
-                            }
-                        },
-                        data: {
-                            url: `${APP_URL}/home`,
-                            type: item.type
-                        }
+        // Chuẩn hóa payload notification (FCM v1 không chấp nhận trường rỗng "")
+        const notifPayload = {
+            title: item.title,
+            body: item.body
+        };
+        if (item.image && typeof item.image === 'string' && item.image.startsWith('http')) {
+            notifPayload.image = item.image;
+        }
+
+        const webpushNotif = {
+            icon: `${APP_URL}/logo.png`,
+            badge: `${APP_URL}/logo_tc2.png`,
+            tag: item.tag || 'general-tag',
+            renotify: true,
+            requireInteraction: true
+        };
+        if (item.image && typeof item.image === 'string' && item.image.startsWith('http')) {
+            webpushNotif.image = item.image;
+        }
+
+        const sendRequests = tokens.map(async (token) => {
+            const messageBody = {
+                message: {
+                    token: token,
+                    notification: notifPayload,
+                    webpush: {
+                        headers: { Urgency: 'high' },
+                        notification: webpushNotif,
+                        fcm_options: { link: `${APP_URL}/home.html` }
+                    },
+                    data: {
+                        url: `${APP_URL}/home.html`,
+                        type: String(item.type || 'GENERAL')
                     }
-                })
-            });
+                }
+            };
+
+            try {
+                const res = await fetch(`https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(messageBody)
+                });
+
+                const resJson = await res.json();
+                if (!res.ok) {
+                    console.error(`❌ FCM Thất bại với token ...${token.slice(-8)} (Mã ${res.status}):`, JSON.stringify(resJson));
+                } else {
+                    console.log(`✅ Gửi thành công tới: ...${token.slice(-8)}`);
+                }
+            } catch (err) {
+                console.error(`❌ Lỗi kết nối FCM:`, err.message);
+            }
         });
 
+        // Chờ toàn bộ request gửi đi hoàn tất
         await Promise.all(sendRequests);
 
-        // Cập nhật trạng thái sau khi đã gửi xong
+        // 4. Dọn dẹp / Cập nhật cờ sau khi gửi xong
         if (item.type === 'DAILY_SUMMARY') {
             await fetch(`${DB_URL}/system/daily_summary_date.json`, {
                 method: 'PUT',
@@ -227,11 +245,10 @@ async function run() {
             });
             console.log(`Đã cập nhật ngày gửi tóm tắt: ${item.dateKey}`);
         } else if (item.type === 'MANUAL_ANNOUNCEMENT') {
-            // Xóa sạch bản ghi trong hàng đợi gửi push trên Firebase
             await fetch(`${DB_URL}/manual_notifications/${item.manualKey}.json`, {
                 method: 'DELETE'
             });
-            console.log(`Đã gửi Push và xóa sạch hàng đợi: ${item.manualKey}`);
+            console.log(`Đã hoàn tất gửi Push và xóa sạch hàng đợi: ${item.manualKey}`);
         } else {
             await fetch(`${DB_URL}/matches/${item.matchId}/config/${item.flagKey}.json`, {
                 method: 'PUT',
