@@ -34,10 +34,11 @@ async function getAccessToken(clientEmail, privateKey) {
     return tokenData.access_token;
 }
 
-function formatTime(timestamp) {
-    const d = new Date(timestamp);
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
+// Format giờ CHUẨN MÚI GIỜ VIỆT NAM (GMT+7)
+function formatTimeVN(timestamp) {
+    const d = new Date(timestamp + (7 * 3600 * 1000));
+    const hours = String(d.getUTCHours()).padStart(2, '0');
+    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
 }
 
@@ -53,8 +54,11 @@ async function run() {
     const now = Date.now();
     const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
-    // Giờ Việt Nam (GMT+7)
-    const todayStr = new Date(now + 7 * 3600 * 1000).toISOString().split('T')[0];
+    // Giờ Việt Nam hiện tại (GMT+7)
+    const vnDate = new Date(now + (7 * 3600 * 1000));
+    const vnHour = vnDate.getUTCHours(); // Giờ thực tế ở Việt Nam (0 - 23)
+    const todayStr = vnDate.toISOString().split('T')[0];
+
     const startOfDay = new Date(`${todayStr}T00:00:00+07:00`).getTime();
     const endOfDay = new Date(`${todayStr}T23:59:59+07:00`).getTime();
 
@@ -71,7 +75,7 @@ async function run() {
     const tokensData = (await tokensRes.json()) || {};
     const manualData = (await manualRes.json()) || {};
 
-    // Danh sách thiết bị hợp lệ (kèm username nếu có)
+    // Thiết bị hợp lệ kèm username
     const userDevices = Object.entries(tokensData).map(([key, val]) => ({
         dbKey: key,
         token: val.token,
@@ -82,24 +86,27 @@ async function run() {
         console.log('Không tìm thấy thiết bị nào đã đăng ký nhận thông báo.');
         return;
     }
-    console.log(`Tìm thấy ${userDevices.length} thiết bị trong hệ thống.`);
 
     const notificationsToSend = [];
 
-    // A. Quét các trận đấu
+    // A. Quét các trận đấu trong ngày
     const todayMatches = [];
     for (const id in matches) {
         const conf = matches[id]?.config;
         if (!conf) continue;
 
-        const t1 = conf.t1 || 'Đội 1';
-        const t2 = conf.t2 || 'Đội 2';
+        const t1 = (conf.t1 || '').trim();
+        const t2 = (conf.t2 || '').trim();
 
+        // Bỏ qua trận chưa cấu hình tên
+        if (!t1 || t1 === "Đội 1" || !t2 || t2 === "Đội 2") continue;
+
+        // Trận đấu diễn ra trong ngày hôm nay
         if (conf.kickoff && conf.kickoff >= startOfDay && conf.kickoff <= endOfDay) {
             todayMatches.push({ id, t1, t2, kickoff: conf.kickoff, deadline: conf.deadline });
         }
 
-        // Lấy danh sách tên những người đã bình chọn trận này
+        // Lấy danh sách những ai đã vote trận này
         const matchHistory = Object.values(matches[id]?.history || {});
         const votedUsernames = new Set(matchHistory.map(h => (h.name || '').trim().toLowerCase()));
 
@@ -107,7 +114,6 @@ async function run() {
         if (conf.kickoff) {
             const diffKickoff = conf.kickoff - now;
             if (diffKickoff > 0 && diffKickoff <= FIFTEEN_MINUTES && !conf.notified_upcoming) {
-                // Lọc bỏ những người đã vote trận này
                 const targetTokens = userDevices
                     .filter(d => !d.username || !votedUsernames.has(d.username.trim().toLowerCase()))
                     .map(d => d.token);
@@ -118,8 +124,8 @@ async function run() {
                         matchId: id,
                         flagKey: 'notified_upcoming',
                         tag: `upcoming-${id}`,
-                        title: 'SẮP MỞ CỔNG BÌNH CHỌN!',
-                        body: `Trận ${t1}-${t2} sẽ mở sau ít phút nữa. Hãy dự đoán ngay!`,
+                        title: 'SẮP ĐẾN GIỜ BÌNH CHỌN!',
+                        body: `Trận ${t1} -${t2} sắp mở. Hãy vào dự đoán!`,
                         tokens: targetTokens
                     });
                 }
@@ -130,7 +136,6 @@ async function run() {
         if (conf.deadline) {
             const diffDeadline = conf.deadline - now;
             if (diffDeadline > 0 && diffDeadline <= FIFTEEN_MINUTES && !conf.notified_closing) {
-                // Lọc bỏ những người đã vote trận này
                 const targetTokens = userDevices
                     .filter(d => !d.username || !votedUsernames.has(d.username.trim().toLowerCase()))
                     .map(d => d.token);
@@ -142,7 +147,7 @@ async function run() {
                         flagKey: 'notified_closing',
                         tag: `closing-${id}`,
                         title: 'SẮP ĐÓNG CỔNG BÌNH CHỌN!',
-                        body: `Trận ${t1}-${t2} sẽ đóng sau ít phút nữa. Hãy dự đoán ngay!`,
+                        body: `Trận ${t1} -${t2} sắp đóng. Hãy vào dự đoán!`,
                         tokens: targetTokens
                     });
                 }
@@ -150,10 +155,11 @@ async function run() {
         }
     }
 
-    // B. Lịch thi đấu trong ngày (Gửi cho tất cả thiết bị)
-    if (todayMatches.length > 0 && system.daily_summary_date !== todayStr) {
+    // B. LỊCH THI ĐẤU TRONG NGÀY (DAILY SUMMARY)
+    // NGHIÊM CẤM GỬI LÚC NỬA ĐÊM: Chỉ gửi trong khung giờ sáng từ 07:00 đến 09:00 (giờ VN)
+    if (vnHour >= 7 && vnHour <= 9 && todayMatches.length > 0 && system.daily_summary_date !== todayStr) {
         todayMatches.sort((a, b) => a.kickoff - b.kickoff);
-        const matchLines = todayMatches.map(m => `• ${formatTime(m.kickoff)}: ${m.t1}-${m.t2}`).join('\n');
+        const matchLines = todayMatches.map(m => `• ${formatTimeVN(m.kickoff)}: ${m.t1} - ${m.t2}`).join('\n');
 
         notificationsToSend.push({
             type: 'DAILY_SUMMARY',
@@ -165,7 +171,7 @@ async function run() {
         });
     }
 
-    // C. Quét thông báo thủ công từ Admin (Gửi cho tất cả thiết bị)
+    // C. Quét thông báo thủ công từ Admin (BTC)
     if (manualData) {
         for (const key in manualData) {
             const item = manualData[key];
@@ -184,14 +190,14 @@ async function run() {
     }
 
     if (notificationsToSend.length === 0) {
-        console.log('Không có thông báo nào cần gửi lúc này.');
+        console.log(`[${todayStr} ${vnHour}h VN] Không có thông báo nào cần gửi.`);
         return;
     }
 
     // 2. Lấy Google Access Token
     const accessToken = await getAccessToken(clientEmail, privateKey);
 
-    // 3. Gửi thông báo
+    // 3. Tiến hành gửi FCM
     for (const item of notificationsToSend) {
         console.log(`\n========================================`);
         console.log(`Đang gửi: "${item.title}" tới ${item.tokens.length} thiết bị...`);
@@ -216,13 +222,13 @@ async function run() {
                     webpush: {
                         headers: { Urgency: 'high' },
                         notification: webpushNotif,
-                        fcm_options: { link: `${APP_URL}/home.html` }
+                        fcm_options: { link: `${APP_URL}/home` }
                     },
                     data: {
                         title: item.title,
                         body: item.body,
                         image: item.image || '',
-                        url: `${APP_URL}/home.html`,
+                        url: `${APP_URL}/home`,
                         type: String(item.type || 'GENERAL')
                     }
                 }
@@ -240,9 +246,6 @@ async function run() {
 
                 const resJson = await res.json();
                 if (!res.ok) {
-                    console.error(`❌ FCM Thất bại với token ...${token.slice(-8)} (Mã ${res.status}):`, JSON.stringify(resJson));
-
-                    // Tự động dọn token hỏng khỏi Firebase
                     if (res.status === 404 || resJson?.error?.details?.[0]?.errorCode === 'UNREGISTERED') {
                         const matchedDevice = userDevices.find(d => d.token === token);
                         if (matchedDevice) {
@@ -254,13 +257,13 @@ async function run() {
                     console.log(`✅ Gửi thành công tới: ...${token.slice(-8)}`);
                 }
             } catch (err) {
-                console.error(`❌ Lỗi kết nối FCM:`, err.message);
+                console.error(`❌ Lỗi FCM:`, err.message);
             }
         });
 
         await Promise.all(sendRequests);
 
-        // 4. Cập nhật cờ và xóa hàng đợi
+        // 4. Đánh dấu đã gửi
         if (item.type === 'DAILY_SUMMARY') {
             await fetch(`${DB_URL}/system/daily_summary_date.json`, {
                 method: 'PUT',
@@ -279,12 +282,11 @@ async function run() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(true)
             });
-            console.log(`Đã cập nhật trạng thái đã gửi cho trận ${item.matchId}`);
         }
     }
 }
 
 run().catch(err => {
-    console.error('Lỗi khi chạy cron:', err);
+    console.error('Lỗi cron:', err);
     process.exit(1);
 });
