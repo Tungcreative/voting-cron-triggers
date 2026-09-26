@@ -164,7 +164,7 @@ async function run() {
         notificationsToSend.push({
             type: 'DAILY_SUMMARY',
             tag: 'daily-schedule',
-            title: `LỊCH BÌNH CHỌN HÔM NAY (${todayMatches.length} TRẬN)`,
+            title: `TRẬN MỞ HÔM NAY (${todayMatches.length} TRẬN)`,
             body: matchLines,
             dateKey: todayStr,
             tokens: userDevices.map(d => d.token)
@@ -222,13 +222,13 @@ async function run() {
                     webpush: {
                         headers: { Urgency: 'high' },
                         notification: webpushNotif,
-                        fcm_options: { link: `${APP_URL}/home` }
+                        fcm_options: { link: `${APP_URL}/home.html` }
                     },
                     data: {
                         title: item.title,
                         body: item.body,
                         image: item.image || '',
-                        url: `${APP_URL}/home`,
+                        url: `${APP_URL}/home.html`,
                         type: String(item.type || 'GENERAL')
                     }
                 }
